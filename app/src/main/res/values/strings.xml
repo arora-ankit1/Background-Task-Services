@@ -3,5 +3,6 @@
     <string name="enter_url">Enter Image Dimension</string>
     <string name="last_saved_image_count">last_saved_image_count</string>
     <string name="go">Go\n</string>
+    <string name="yay_success">YAY File Saved Successfully !!!</string>
     <string name="image_holder">image holder</string>
 </resources>
