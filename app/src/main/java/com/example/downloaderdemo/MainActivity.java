@@ -1,9 +1,15 @@
 package com.example.downloaderdemo;
 
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
+import androidx.core.graphics.drawable.IconCompat;
 import androidx.lifecycle.Observer;
 import androidx.work.Constraints;
 import androidx.work.Data;
+import androidx.work.ForegroundInfo;
 import androidx.work.NetworkType;
 import androidx.work.OneTimeWorkRequest;
 import androidx.work.WorkInfo;
@@ -11,11 +17,19 @@ import androidx.work.WorkManager;
 import androidx.work.WorkRequest;
 import androidx.work.Worker;
 
-import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.DialogInterface;
+import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -28,10 +42,6 @@ import com.bumptech.glide.Glide;
 import com.example.downloaderdemo.BackgroundWorker.BackgroundUtils;
 import com.example.downloaderdemo.BackgroundWorker.DownloadWorker;
 import com.google.android.material.textfield.TextInputEditText;
-
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
 
 public class MainActivity extends AppCompatActivity {
     private TextInputEditText editText;
@@ -46,6 +56,10 @@ public class MainActivity extends AppCompatActivity {
     private WorkManager workManager;
     private Constraints constraints;
 
+    public static final int VIEW_IMAGE_NOTIFICATION_ID = 2;
+    private static final String VIEW_CHANNEL = "view_channel";
+    private String dimension = "";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -57,16 +71,67 @@ public class MainActivity extends AppCompatActivity {
         imageView = findViewById(R.id.iv_downloaded_file);
         greetings = findViewById(R.id.tv_greetings);
         workManager = WorkManager.getInstance(getApplicationContext());
+        createViewNotificationChannel();
 
         downloadButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                String dimension = editText.getText().toString();
+                dimension = editText.getText().toString();
+                greetings.setText("Enter Dimensions");
 //                downloadTask = new DownloadTask(progressBar, imageView);
 //                downloadTask.execute(dimension);
-                scheduleDownloadWorker(dimension);
+                checkPermissions();
+//                scheduleDownloadWorker(dimension);
             }
         });
+    }
+
+    private void checkPermissions() {
+        if (areNotificationPermissionsGranted()) {
+            // Proceed with showing the notification
+            scheduleDownloadWorker(dimension);
+        } else {
+            // Request notification permissions
+            requestNotificationPermissions();
+        }
+    }
+
+    private boolean areNotificationPermissionsGranted() {
+        // Check if the app has the necessary notification permissions
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return NotificationManagerCompat.from(this).areNotificationsEnabled();
+        }
+        return true; // Notifications are always enabled pre-API 23
+    }
+
+    private void requestNotificationPermissions() {
+        // Show a dialog asking the user to enable notifications
+        new AlertDialog.Builder(this)
+                .setTitle("Enable Notifications")
+                .setMessage("To download files, please enable notifications for this app.")
+                .setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialogInterface, int i) {
+                        // Open app settings to allow the user to enable notifications
+                        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                        Uri uri = Uri.fromParts("package", getPackageName(), null);
+                        intent.setData(uri);
+                        startActivityForResult(intent, 123);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 123) {
+            // Check again if the user granted notification permissions after returning from settings
+            if (areNotificationPermissionsGranted()) {
+                scheduleDownloadWorker(dimension);
+            }
+        }
     }
 
     private void scheduleDownloadWorker(String dimension) {
@@ -100,6 +165,7 @@ public class MainActivity extends AppCompatActivity {
                     Log.d("FILE_URI", "onChanged: fileUri= " + fileUri);
                     greetings.setText(getResources().getString(R.string.yay_success));
                     Glide.with(imageView).load(BackgroundUtils.fileUri).into(imageView);
+                    createPendingIntent(BackgroundUtils.fileUri);
                     Toast.makeText(imageView.getContext(), "DownloadSuccessful URI", Toast.LENGTH_LONG).show();
                 } else if (workInfo.getOutputData().hasKeyWithValueOfType(BackgroundUtils.FAILURE_ERROR_MESSAGE, String.class)) {
                     String errorMessage = workInfo.getOutputData().getString(BackgroundUtils.FAILURE_ERROR_MESSAGE);
@@ -111,11 +177,63 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+
+    private void createViewNotificationChannel() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    VIEW_CHANNEL,
+                    "View Image Channel",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+            channel.setDescription("Channel for image view notifications");
+            NotificationManager notificationManager = getApplicationContext().getSystemService(NotificationManager.class);
+            notificationManager.createNotificationChannel(channel);
+        }
+    }
+
+    private void createPendingIntent(Uri uri) {
+
+        // Create a PendingIntent to open the gallery when the user clicks the notification
+//        ForegroundInfo foreInfo = createViewImageForegroundInfo();
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setDataAndType(uri, "image/*");
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        Bitmap bitmap = BitmapFactory.decodeByteArray(BackgroundUtils.imageData, 0,BackgroundUtils.imageData.length ) ;
+        Notification notification = new NotificationCompat.Builder(getApplicationContext(), VIEW_CHANNEL)
+                .setContentTitle("View Image")
+                .setContentText("View the downloaded image")
+                .setContentInfo("Lets view the image")
+                .setSmallIcon(R.drawable.baseline_notifications_active_24)
+                .setLargeIcon(bitmap)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setCategory(NotificationCompat.CATEGORY_EVENT)
+                .setAutoCancel(true)
+                .build();
+
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+                getApplicationContext(),
+                8,
+                intent,
+                PendingIntent.FLAG_IMMUTABLE
+        );
+
+        notification.contentIntent = pendingIntent;
+        NotificationManagerCompat notificationManager = NotificationManagerCompat.from(getApplicationContext());
+        if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+
+        }
+        notificationManager.notify(VIEW_IMAGE_NOTIFICATION_ID, notification);
+    }
+
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (downloadTask != null) {
+        if (downloadTask != null || workManager != null) {
             downloadTask.cancel(true);
+            workManager.cancelAllWork();
         }
 
     }

@@ -1,6 +1,11 @@
 package com.example.downloaderdemo.BackgroundWorker;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
@@ -8,7 +13,10 @@ import android.os.Environment;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.core.app.NotificationCompat;
+import androidx.core.content.FileProvider;
 import androidx.work.Data;
+import androidx.work.ForegroundInfo;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
@@ -32,6 +40,10 @@ public class DownloadWorker extends Worker {
     private String filePath = "";
     private Context context;
     public static final String TAG = DownloadWorker.class.getName();
+    private static final int NOTIFICATION_ID = 1;
+
+    private static final String CHANNEL_ID = "download_channel";
+
 
     public DownloadWorker(@NonNull Context context, @NonNull WorkerParameters workerParams) {
         super(context, workerParams);
@@ -42,6 +54,8 @@ public class DownloadWorker extends Worker {
     @Override
     public Result doWork() {
 
+        createNotificationChannel();
+
         Result result;
 
         Retrofit retrofit = RetrofitClientInstance.getRetrofitInstance();
@@ -51,20 +65,31 @@ public class DownloadWorker extends Worker {
         dimension = getInputData().getString(BackgroundUtils.INPUT_DATA);
         Call<ResponseBody> call = apiService.downloadImage(dimension);
         try {
+            // Set up a foreground notification
+            ForegroundInfo foregroundInfo = createForegroundInfo("Connecting...", 0);
+            setForegroundAsync(foregroundInfo);
+
             // call happens once execute is called
             Response<ResponseBody> response = call.execute();
             if (response.isSuccessful()) {
+                foregroundInfo = createForegroundInfo("Downloading...", 50);
+                setForegroundAsync(foregroundInfo);
                 ResponseBody responseBody = response.body();
                 byte[] data = responseBody.bytes();
                 responseBody.close();
-                saveImageToStorage(data,context);
+                saveImageToStorage(data, context);
                 BackgroundUtils.imageData = data;
+                // Update notification to indicate download complete
+                foregroundInfo = createForegroundInfo("Download Complete", 100);
+                setForegroundAsync(foregroundInfo);
                 Data data1 = new Data.Builder()
                         .putString(BackgroundUtils.SUCCESS_IMAGE_DOWNLOADED_URI, fileUri.toString())
                         .putString(BackgroundUtils.SUCCESS_IMAGE_DOWNLOADED_PATH, filePath)
                         .build();
                 result = Result.success(data1);
             } else {
+                foregroundInfo = createForegroundInfo("Download Failed", 0);
+                setForegroundAsync(foregroundInfo);
                 result = Result.failure(
                         new Data.Builder()
                                 .putInt(BackgroundUtils.FAILURE_ERROR_CODE, response.code())
@@ -84,12 +109,43 @@ public class DownloadWorker extends Worker {
         return result;
     }
 
-    private void saveImageToStorage(byte[] imageData,Context context) {
+    private ForegroundInfo createForegroundInfo(String status, int progress) {
+        Notification notification = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
+                .setContentTitle("Image Download")
+                .setContentText(status)
+                .setSmallIcon(R.drawable.baseline_cloud_download_24)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setCategory(NotificationCompat.CATEGORY_EVENT)
+                .setProgress(100, progress, false)
+                .build();
+
+
+        return new ForegroundInfo(NOTIFICATION_ID, notification);
+    }
+
+
+
+    private void createNotificationChannel() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "Download Channel",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+            channel.setDescription("Channel for image download notifications");
+            NotificationManager notificationManager = context.getSystemService(NotificationManager.class);
+            notificationManager.createNotificationChannel(channel);
+        }
+    }
+
+
+
+    private void saveImageToStorage(byte[] imageData, Context context) {
         try {
 
 
             // using shared preferences to have unique name
-            SharedPreferences sharedPreferences = context.getSharedPreferences( "",Context.MODE_PRIVATE);
+            SharedPreferences sharedPreferences = context.getSharedPreferences("", Context.MODE_PRIVATE);
             SharedPreferences.Editor editor = sharedPreferences.edit();
 
 
@@ -100,7 +156,7 @@ public class DownloadWorker extends Worker {
             File directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
 
             // Create a file to save the image
-            File file = new File(directory, "downloaded_image_"+last_count+"_.jpg");
+            File file = new File(directory, "downloaded_image_" + last_count + "_.jpg");
 
             // Create a FileOutputStream to write the bytes to the file
             FileOutputStream outputStream = new FileOutputStream(file);
@@ -117,7 +173,6 @@ public class DownloadWorker extends Worker {
                     new MediaScannerConnection.OnScanCompletedListener() {
                         @Override
                         public void onScanCompleted(String path, Uri uri) {
-                            Log.d(TAG, "onScanCompleted: path= "+path+" uri="+uri);
                             fileUri = uri;
                             BackgroundUtils.fileUri = uri;
                             filePath = path;
@@ -126,7 +181,7 @@ public class DownloadWorker extends Worker {
             );
 
             // storing last count for further usage
-            editor.putInt(context.getString(R.string.last_saved_image_count),last_count+1);
+            editor.putInt(context.getString(R.string.last_saved_image_count), last_count + 1);
             editor.apply();
 
             // Display a toast message indicating that the image has been saved
@@ -139,8 +194,4 @@ public class DownloadWorker extends Worker {
     }
 
 
-
-    public void setDimension(String dimension) {
-        this.dimension = dimension;
-    }
 }
