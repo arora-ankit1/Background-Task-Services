@@ -71,6 +71,7 @@ public class MainActivity extends AppCompatActivity {
         imageView = findViewById(R.id.iv_downloaded_file);
         greetings = findViewById(R.id.tv_greetings);
         workManager = WorkManager.getInstance(getApplicationContext());
+        // creating request channel
         createViewNotificationChannel();
 
         downloadButton.setOnClickListener(new View.OnClickListener() {
@@ -80,6 +81,7 @@ public class MainActivity extends AppCompatActivity {
                 greetings.setText("Enter Dimensions");
 //                downloadTask = new DownloadTask(progressBar, imageView);
 //                downloadTask.execute(dimension);
+                // Checking Notification Permission before notifying
                 checkPermissions();
 //                scheduleDownloadWorker(dimension);
             }
@@ -119,7 +121,12 @@ public class MainActivity extends AppCompatActivity {
                         startActivityForResult(intent, 123);
                     }
                 })
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        Toast.makeText(getBaseContext(), "No Notifications will be delivered", Toast.LENGTH_LONG).show();
+                    }
+                })
                 .show();
     }
 
@@ -131,6 +138,10 @@ public class MainActivity extends AppCompatActivity {
             if (areNotificationPermissionsGranted()) {
                 scheduleDownloadWorker(dimension);
             }
+        } else if (requestCode == 124) {
+            // open camera success
+        } else if (requestCode == 125) {
+            // open mail success
         }
     }
 
@@ -165,6 +176,7 @@ public class MainActivity extends AppCompatActivity {
                     Log.d("FILE_URI", "onChanged: fileUri= " + fileUri);
                     greetings.setText(getResources().getString(R.string.yay_success));
                     Glide.with(imageView).load(BackgroundUtils.fileUri).into(imageView);
+                    // Showing Image View Notification
                     createPendingIntent(BackgroundUtils.fileUri);
                     Toast.makeText(imageView.getContext(), "DownloadSuccessful URI", Toast.LENGTH_LONG).show();
                 } else if (workInfo.getOutputData().hasKeyWithValueOfType(BackgroundUtils.FAILURE_ERROR_MESSAGE, String.class)) {
@@ -194,12 +206,16 @@ public class MainActivity extends AppCompatActivity {
     private void createPendingIntent(Uri uri) {
 
         // Create a PendingIntent to open the gallery when the user clicks the notification
-//        ForegroundInfo foreInfo = createViewImageForegroundInfo();
+
         Intent intent = new Intent(Intent.ACTION_VIEW);
         intent.setDataAndType(uri, "image/*");
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        Bitmap bitmap = BitmapFactory.decodeByteArray(BackgroundUtils.imageData, 0,BackgroundUtils.imageData.length ) ;
+
+        // Build a bitmap image of the downloaded image to show in notification icon
+        Bitmap bitmap = BitmapFactory.decodeByteArray(BackgroundUtils.imageData, 0, BackgroundUtils.imageData.length);
+
+        // Build the notification
         Notification notification = new NotificationCompat.Builder(getApplicationContext(), VIEW_CHANNEL)
                 .setContentTitle("View Image")
                 .setContentText("View the downloaded image")
@@ -212,6 +228,7 @@ public class MainActivity extends AppCompatActivity {
                 .setAutoCancel(true)
                 .build();
 
+        // Create the Pending intent
         PendingIntent pendingIntent = PendingIntent.getActivity(
                 getApplicationContext(),
                 8,
@@ -221,8 +238,10 @@ public class MainActivity extends AppCompatActivity {
 
         notification.contentIntent = pendingIntent;
         NotificationManagerCompat notificationManager = NotificationManagerCompat.from(getApplicationContext());
-        if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
 
+        // Verify if the user has granted notification permission or not
+        if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestNotificationPermissions();
         }
         notificationManager.notify(VIEW_IMAGE_NOTIFICATION_ID, notification);
     }

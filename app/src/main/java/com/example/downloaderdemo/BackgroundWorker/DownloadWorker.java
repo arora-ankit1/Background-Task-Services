@@ -95,7 +95,7 @@ public class DownloadWorker extends Worker {
                                 .putInt(BackgroundUtils.FAILURE_ERROR_CODE, response.code())
                                 .build()
                 );
-                Log.e("DownloadTask", "Download failed: " + response.code());
+                Log.e("DownloadWorker", "Download failed: " + response.code());
             }
         } catch (IOException e) {
             result = Result.failure(
@@ -103,7 +103,7 @@ public class DownloadWorker extends Worker {
                             .putString(BackgroundUtils.FAILURE_ERROR_MESSAGE, e.getMessage())
                             .build()
             );
-            Log.e("DownloadTask", "IOException during download: " + e.getMessage());
+            Log.e("DownloadWorker", "IOException during download: " + e.getMessage());
         }
 
         return result;
