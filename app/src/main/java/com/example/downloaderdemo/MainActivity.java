@@ -7,6 +7,7 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.graphics.drawable.IconCompat;
 import androidx.lifecycle.Observer;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import androidx.work.Constraints;
 import androidx.work.Data;
 import androidx.work.ForegroundInfo;
@@ -21,8 +22,10 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -44,6 +47,7 @@ import com.example.downloaderdemo.BackgroundWorker.DownloadWorker;
 import com.google.android.material.textfield.TextInputEditText;
 
 public class MainActivity extends AppCompatActivity {
+    private static final String TAG = "MainActivity";
     private TextInputEditText editText;
     private Button downloadButton;
     private ProgressBar progressBar;
@@ -58,7 +62,17 @@ public class MainActivity extends AppCompatActivity {
 
     public static final int VIEW_IMAGE_NOTIFICATION_ID = 2;
     private static final String VIEW_CHANNEL = "view_channel";
+
+    private static final String BROADCAST_CHANNEL = "broadcast_channel";
+
+    public static final int BROADCAST_IMAGE_NOTIFICATION_ID = 3;
     private String dimension = "";
+
+    public static final String DOWNLOAD_SUCCESS_BROADCAST = "com.example.downloaderdemo.IMAGE_DOWNLOADED";
+    IntentFilter intentFilter;
+    ImageDownloadReceiver mReceiver;
+
+    private Context mContext;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,9 +84,14 @@ public class MainActivity extends AppCompatActivity {
         progressBar = findViewById(R.id.progress_horizontal);
         imageView = findViewById(R.id.iv_downloaded_file);
         greetings = findViewById(R.id.tv_greetings);
+        mContext = this;
+        BackgroundUtils.mContext = this;
         workManager = WorkManager.getInstance(getApplicationContext());
         // creating request channel
         createViewNotificationChannel();
+        createBroadcastNotificationChannel();
+        mReceiver = new ImageDownloadReceiver();
+        intentFilter = new IntentFilter(DOWNLOAD_SUCCESS_BROADCAST);
 
         downloadButton.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -87,6 +106,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
     }
+
 
     private void checkPermissions() {
         if (areNotificationPermissionsGranted()) {
@@ -176,8 +196,11 @@ public class MainActivity extends AppCompatActivity {
                     Log.d("FILE_URI", "onChanged: fileUri= " + fileUri);
                     greetings.setText(getResources().getString(R.string.yay_success));
                     Glide.with(imageView).load(BackgroundUtils.fileUri).into(imageView);
-                    // Showing Image View Notification
-                    createPendingIntent(BackgroundUtils.fileUri);
+
+//                    createPendingIntent(BackgroundUtils.fileUri);
+                    sendImageBroadcast(getApplicationContext(), BackgroundUtils.fileUri);
+//                    showNotificationWithButton(getApplicationContext());
+
                     Toast.makeText(imageView.getContext(), "DownloadSuccessful URI", Toast.LENGTH_LONG).show();
                 } else if (workInfo.getOutputData().hasKeyWithValueOfType(BackgroundUtils.FAILURE_ERROR_MESSAGE, String.class)) {
                     String errorMessage = workInfo.getOutputData().getString(BackgroundUtils.FAILURE_ERROR_MESSAGE);
@@ -198,6 +221,19 @@ public class MainActivity extends AppCompatActivity {
                     NotificationManager.IMPORTANCE_LOW
             );
             channel.setDescription("Channel for image view notifications");
+            NotificationManager notificationManager = getApplicationContext().getSystemService(NotificationManager.class);
+            notificationManager.createNotificationChannel(channel);
+        }
+    }
+
+    private void createBroadcastNotificationChannel() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    BROADCAST_CHANNEL,
+                    "Broadcast Channel",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+            channel.setDescription("Channel for Broadcast notifications");
             NotificationManager notificationManager = getApplicationContext().getSystemService(NotificationManager.class);
             notificationManager.createNotificationChannel(channel);
         }
@@ -246,6 +282,42 @@ public class MainActivity extends AppCompatActivity {
         notificationManager.notify(VIEW_IMAGE_NOTIFICATION_ID, notification);
     }
 
+    @Override
+    protected void onStart() {
+        super.onStart();
+        LocalBroadcastManager.getInstance(this.getApplicationContext()).registerReceiver(mReceiver, intentFilter);
+    }
+
+    private void sendImageBroadcast(Context context, Uri imageUri) {
+        Intent broadcastIntent = new Intent(DOWNLOAD_SUCCESS_BROADCAST);
+//        broadcastIntent.setAction();
+        broadcastIntent.putExtra("imageUri", imageUri.toString());
+        LocalBroadcastManager.getInstance(this.getApplicationContext()).sendBroadcast(broadcastIntent);
+//        sendBroadcast(broadcastIntent);
+    }
+
+
+    public void showNotificationWithButton(Context context) {
+        // Create PendingIntent for the broadcast button
+        Intent broadcastIntent = new Intent(DOWNLOAD_SUCCESS_BROADCAST);
+        broadcastIntent.putExtra("imageUri", BackgroundUtils.fileUri.toString());
+        PendingIntent broadcastPendingIntent = PendingIntent.getBroadcast(context, 0, broadcastIntent, PendingIntent.FLAG_IMMUTABLE);
+        Bitmap bitmap = BitmapFactory.decodeByteArray(BackgroundUtils.imageData, 0, BackgroundUtils.imageData.length);
+
+        // Create notification with button
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, BROADCAST_CHANNEL)
+                .setContentTitle("Image Broadcast")
+                .setContentText("Your Image is downloaded successfully")
+                .setSmallIcon(R.drawable.baseline_notifications_active_24)
+                .setLargeIcon(bitmap)
+                .addAction(R.drawable.baseline_notifications_active_24, "Open Image", broadcastPendingIntent);
+
+        NotificationManagerCompat notificationManager = NotificationManagerCompat.from(context);
+        if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestNotificationPermissions();
+        }
+        notificationManager.notify(BROADCAST_IMAGE_NOTIFICATION_ID, builder.build());
+    }
 
     @Override
     protected void onDestroy() {
@@ -254,6 +326,6 @@ public class MainActivity extends AppCompatActivity {
             downloadTask.cancel(true);
             workManager.cancelAllWork();
         }
-
+        LocalBroadcastManager.getInstance(this.getApplicationContext()).unregisterReceiver(mReceiver);
     }
 }

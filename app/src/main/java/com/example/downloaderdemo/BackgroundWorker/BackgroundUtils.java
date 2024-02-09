@@ -1,5 +1,6 @@
 package com.example.downloaderdemo.BackgroundWorker;
 
+import android.content.Context;
 import android.net.Uri;
 
 public class BackgroundUtils {
@@ -13,4 +14,6 @@ public class BackgroundUtils {
     public static byte[] imageData;
 
     public static Uri fileUri;
+
+    public static Context mContext;
 }
