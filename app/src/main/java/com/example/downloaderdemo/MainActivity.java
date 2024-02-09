@@ -5,11 +5,9 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
-import androidx.core.graphics.drawable.IconCompat;
 import androidx.lifecycle.Observer;
 import androidx.work.Constraints;
 import androidx.work.Data;
-import androidx.work.ForegroundInfo;
 import androidx.work.NetworkType;
 import androidx.work.OneTimeWorkRequest;
 import androidx.work.WorkInfo;
@@ -43,7 +41,7 @@ import com.example.downloaderdemo.BackgroundWorker.BackgroundUtils;
 import com.example.downloaderdemo.BackgroundWorker.DownloadWorker;
 import com.google.android.material.textfield.TextInputEditText;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements ImageDownloadService.ImageDownloadListener {
     private TextInputEditText editText;
     private Button downloadButton;
     private ProgressBar progressBar;
@@ -59,6 +57,7 @@ public class MainActivity extends AppCompatActivity {
     public static final int VIEW_IMAGE_NOTIFICATION_ID = 2;
     private static final String VIEW_CHANNEL = "view_channel";
     private String dimension = "";
+    public static final String TAG = MainActivity.class.getName();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -72,6 +71,14 @@ public class MainActivity extends AppCompatActivity {
         greetings = findViewById(R.id.tv_greetings);
         workManager = WorkManager.getInstance(getApplicationContext());
         createViewNotificationChannel();
+
+
+        ImageDownloadService service = new ImageDownloadService();
+        service.setImageDownloadListener(this); // Set the listener
+        startForegroundService(new Intent(this, service.getClass()));
+
+//        HelloService helloService = new HelloService();
+//        startService(new Intent(this,helloService.getClass()));
 
         downloadButton.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -232,9 +239,17 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         if (downloadTask != null || workManager != null) {
-            downloadTask.cancel(true);
+//            downloadTask.cancel(true);
             workManager.cancelAllWork();
         }
+        stopService(new Intent(this,ImageDownloadService.class));
 
+    }
+
+    @Override
+    public void onDownloadRequested(String dimension) {
+        Log.d(TAG, "onDownloadRequested: ");
+        scheduleDownloadWorker(dimension);
+        Toast.makeText(getBaseContext(), "Service is running ", Toast.LENGTH_LONG).show();
     }
 }
